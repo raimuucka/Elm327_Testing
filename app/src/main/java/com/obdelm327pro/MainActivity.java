@@ -1,14 +1,18 @@
 package com.obdelm327pro;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
+import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Color;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -34,10 +38,16 @@ import android.widget.TextView;
 import android.widget.Toast;
 import com.google.android.material.appbar.AppBarLayout;
 
+import androidx.activity.result.ActivityResult;
+import androidx.activity.result.ActivityResultCallback;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -96,6 +106,8 @@ public class MainActivity extends AppCompatActivity {
     // Intent request codes
     private static final int REQUEST_CONNECT_DEVICE = 2;
     private static final int REQUEST_ENABLE_BT = 3;
+    private static final int REQUEST_BLUETOOTH_SCAN = 4;
+    private static final int REQUEST_BLUETOOTH_CONNECT = 5;
     private static final float APPBAR_ELEVATION = 14f;
     private static boolean actionbar = true;
     final List<String> commandslist = new ArrayList<String>();
@@ -561,6 +573,10 @@ public class MainActivity extends AppCompatActivity {
                     Status.setLayoutParams(lp);
 
                 } catch (Exception e) {
+                    String message = e.getMessage();
+                    if(message == null)
+                        message = "";
+                    Log.e("Error", message);
                 }
             }
         });
@@ -580,13 +596,22 @@ public class MainActivity extends AppCompatActivity {
         return true;
     }
 
+    public void checkPermission(String permission, int requestCode)
+    {
+        if (ContextCompat.checkSelfPermission(MainActivity.this, permission) == PackageManager.PERMISSION_DENIED) {
+
+            // Requesting the permission
+            ActivityCompat.requestPermissions(MainActivity.this, new String[] { permission }, requestCode);
+        }
+        else {
+            Toast.makeText(MainActivity.this, "Permission already granted", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-
         switch (item.getItemId()) {
-
             case R.id.menu_connect_bt:
-
                 if( mWifiService != null)
                 {
                     if (mWifiService.isConnected())
@@ -598,16 +623,24 @@ public class MainActivity extends AppCompatActivity {
 
                 if (!mBluetoothAdapter.isEnabled()) {
                     Intent enableIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-                    startActivityForResult(enableIntent, REQUEST_ENABLE_BT);
+                    //startActivityForResult(enableIntent, REQUEST_ENABLE_BT);
+                    someActivityResultLauncher.launch(enableIntent);
                     return false;
                 }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    checkPermission(Manifest.permission.BLUETOOTH_CONNECT, REQUEST_BLUETOOTH_CONNECT);
+                    checkPermission(Manifest.permission.BLUETOOTH_SCAN, REQUEST_BLUETOOTH_SCAN);
+                }
+
 
                 if (mBtService == null) setupChat();
 
                 if (item.getTitle().equals("ConnectBT")) {
                     // Launch the DeviceListActivity to see devices and do scan
                     serverIntent = new Intent(this, DeviceListActivity.class);
-                    startActivityForResult(serverIntent, REQUEST_CONNECT_DEVICE);
+                    //startActivityForResult(serverIntent, REQUEST_CONNECT_DEVICE);
+                    someActivityResultLauncher.launch(serverIntent);
                 } else {
                     if (mBtService != null)
                     {
@@ -615,10 +648,9 @@ public class MainActivity extends AppCompatActivity {
                         item.setTitle(R.string.connectbt);
                     }
                 }
-
                 return true;
-            case R.id.menu_connect_wifi:
 
+            case R.id.menu_connect_wifi:
                 if (item.getTitle().equals("ConnectWIFI")) {
 
                     if (mWifiService == null)
@@ -638,10 +670,9 @@ public class MainActivity extends AppCompatActivity {
                         item.setTitle(R.string.connectwifi);
                     }
                 }
-
                 return true;
-            case R.id.menu_terminal:
 
+            case R.id.menu_terminal:
                 if (item.getTitle().equals("Terminal")) {
                     commandmode = true;
                     visiblecmd();
@@ -655,16 +686,15 @@ public class MainActivity extends AppCompatActivity {
                 return true;
 
             case R.id.menu_settings:
-
                 // Launch the DeviceListActivity to see devices and do scan
                 serverIntent = new Intent(this, Prefs.class);
                 startActivity(serverIntent);
-
                 return true;
+
             case R.id.menu_exit:
                 exit();
-
                 return true;
+
             case R.id.menu_reset:
                 resetvalues();
                 return true;
@@ -673,8 +703,27 @@ public class MainActivity extends AppCompatActivity {
         return super.onOptionsItemSelected(item);
     }
 
-    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+    // You can do the assignment inside onAttach or onCreate, i.e, before the activity is displayed
+    ActivityResultLauncher<Intent> someActivityResultLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(), new ActivityResultCallback<ActivityResult>() {
+                @Override
+                public void onActivityResult(ActivityResult result) {
+                    if(result != null) {
+                        // There are no request codes
+                        Intent data = result.getData();
+                        connectDevice(data);
 
+                        if (result.getResultCode() == Activity.RESULT_OK) {
+                            Log.d("INFO", "RESULT IS OK");
+                        } else {
+                            Log.d("INFO", "RESULT IS OK");
+                        }
+                    }
+                }
+            });
+
+    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
         switch (requestCode) {
             case REQUEST_CONNECT_DEVICE:
                 // When DeviceListActivity returns with a device to connect
@@ -844,13 +893,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void setDefaultOrientation() {
-
         try {
-
             settextsixe();
             setgaugesize();
-
         } catch (Exception e) {
+            String message = "" + e.getMessage();
+            Log.e(TAG, message);
         }
     }
 
@@ -1019,17 +1067,19 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void connectDevice(Intent data) {
-        tryconnect = true;
-        // Get the device MAC address
-        String address = data.getExtras().getString(DeviceListActivity.EXTRA_DEVICE_ADDRESS);
-        // Get the BluetoothDevice object
-        BluetoothDevice device = mBluetoothAdapter.getRemoteDevice(address);
-        try {
-            // Attempt to connect to the device
-            mBtService.connect(device);
-            currentdevice = device;
+        if(data != null) {
+            tryconnect = true;
+            // Get the device MAC address
+            String address = data.getExtras().getString(DeviceListActivity.EXTRA_DEVICE_ADDRESS);
+            // Get the BluetoothDevice object
+            BluetoothDevice device = mBluetoothAdapter.getRemoteDevice(address);
+            try {
+                // Attempt to connect to the device
+                mBtService.connect(device);
+                currentdevice = device;
 
-        } catch (Exception e) {
+            } catch (Exception e) {
+            }
         }
     }
 
@@ -1589,6 +1639,57 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public String toString() {
             return response;
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode,
+                                           String[] permissions,
+                                           int[] grantResults)
+    {
+        super.onRequestPermissionsResult(requestCode,
+                permissions,
+                grantResults);
+
+        if (requestCode == REQUEST_ENABLE_BT) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(MainActivity.this, "Bluetooth enable Permission Granted", Toast.LENGTH_SHORT) .show();
+            }
+            else {
+                Toast.makeText(MainActivity.this, "Bluetooth enable Permission Denied", Toast.LENGTH_SHORT) .show();
+            }
+        }
+        else if (requestCode == REQUEST_CONNECT_DEVICE) {
+            if (grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(MainActivity.this, "Connect device Permission Granted", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(MainActivity.this, "Connect device Permission Denied", Toast.LENGTH_SHORT).show();
+            }
+        }
+        else if (requestCode == REQUEST_BLUETOOTH_CONNECT) {
+            if (grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(MainActivity.this, "Bluetooth Connect Permission Granted", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(MainActivity.this, "Bluetooth Connect device Permission Denied", Toast.LENGTH_SHORT).show();
+            }
+        }
+        else if (requestCode == REQUEST_BLUETOOTH_SCAN) {
+            if (grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(MainActivity.this, "Bluetooth scan Permission Granted", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(MainActivity.this, "Bluetooth scan Permission Denied", Toast.LENGTH_SHORT).show();
+            }
+        }
+        else {
+            if (grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(MainActivity.this, "Permission with request code (" + requestCode + ") is Granted", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(MainActivity.this, "Permission with request code (" + requestCode + ") is Denied", Toast.LENGTH_SHORT).show();
+            }
         }
     }
 }
